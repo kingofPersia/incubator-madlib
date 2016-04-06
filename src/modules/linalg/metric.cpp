@@ -338,25 +338,28 @@ closestColumnsAndDistancesShortcut(
  */
 AnyType
 closest_column::run(AnyType& args) {
-    MappedMatrix M = args[0].getAs<MappedMatrix>();
-    MappedColumnVector x = args[1].getAs<MappedColumnVector>();
-    FunctionHandle dist = args[2].getAs<FunctionHandle>()
-        .unsetFunctionCallOptions(FunctionHandle::GarbageCollectionAfterCall);
-    string dist_fname = args[3].getAs<char *>();
+    //if (true) throw std::runtime_error("Begin cc run\n");
+    try{
+        MappedMatrix M = args[0].getAs<MappedMatrix>();
+        MappedColumnVector x = args[1].getAs<MappedColumnVector>();
+        FunctionHandle dist = args[2].getAs<FunctionHandle>()
+            .unsetFunctionCallOptions(FunctionHandle::GarbageCollectionAfterCall);
+        string dist_fname = args[3].getAs<char *>();
+        std::string fname = dist_fn_name(dist_fname);
+        std::tuple<Index, double> result;
+        closestColumnsAndDistancesShortcut(M, x, dist, fname, &result, &result + 1);
 
-    std::string fname = dist_fn_name(dist_fname);
-
-    std::tuple<Index, double> result;
-    closestColumnsAndDistancesShortcut(M, x, dist, fname, &result, &result + 1);
-
-    AnyType tuple;
-    return tuple
-        << static_cast<int32_t>(std::get<0>(result))
-        << std::get<1>(result);
+        AnyType tuple;
+        return tuple
+            << static_cast<int32_t>(std::get<0>(result))
+            << std::get<1>(result);
+    }catch (const ArrayWithNullException &e) {
+        return Null();
+    }
 }
 
 AnyType
-closest_column_hawq::run(AnyType& args) {
+closest_column_fixed::run(AnyType& args) {
     MappedMatrix M = args[0].getAs<MappedMatrix>();
     MappedColumnVector x = args[1].getAs<MappedColumnVector>();
     string distance_metric_str = args[2].getAs<char *>();
@@ -434,7 +437,7 @@ closest_columns::run(AnyType& args) {
 }
 
 AnyType
-closest_columns_hawq::run(AnyType& args) {
+closest_columns_fixed::run(AnyType& args) {
     MappedMatrix M = args[0].getAs<MappedMatrix>();
     MappedColumnVector x = args[1].getAs<MappedColumnVector>();
     uint32_t num = args[2].getAs<uint32_t>();

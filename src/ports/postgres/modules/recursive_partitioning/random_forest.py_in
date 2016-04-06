@@ -20,7 +20,7 @@ from utilities.validate_args import output_tbl_valid
 from utilities.validate_args import cols_in_tbl_valid
 from utilities.utilities import _assert
 from utilities.utilities import unique_string
-from utilities.utilities import add_postfix 
+from utilities.utilities import add_postfix
 from utilities.utilities import split_quoted_delimited_str
 from utilities.utilities import extract_keyvalue_params
 
@@ -314,10 +314,10 @@ def forest_train(
                     num_random_features = (sqrt(n_all_features) if is_classification
                                            else n_all_features / 3)
                 _assert(num_random_features <= len(features),
-                        "Random forest error: Number of features to be selected is more "
-                        "than the actual number of features.")
+                        "Random forest error: Number of features to be selected "
+                        "is more than the actual number of features.")
 
-                all_cols_types = get_cols_and_types(training_table_name)
+                all_cols_types = dict(get_cols_and_types(training_table_name))
                 cat_features, con_features, boolean_cats = _classify_features(
                     all_cols_types, features)
 
@@ -326,18 +326,20 @@ def forest_train(
                                               dependent_variable, grouping_cols,
                                               max_n_surr)
                 # the total number of records
-                n_all_rows = plpy.execute("""
-                        select count(*) from {source_table}
-                        """.format(source_table=training_table_name))[0]['count']
+                n_all_rows = plpy.execute("SELECT count(*) FROM {0}".
+                                          format(training_table_name))[0]['count']
 
                 if is_classification:
                     # For classifications, we also need to map dependent_variable to integers
                     n_rows, dep_list = _get_n_and_deplist(training_table_name,
                                                           dependent_variable,
                                                           filter_null)
+                    _assert(n_rows > 0,
+                            "Random forest error: There should be at least one "
+                            "data point for each class where all features are non NULL")
                     dep_list.sort()
-                    dep_col_str = ("case when " + dependent_variable +
-                                   " then 'True' else 'False' end") if is_bool else dependent_variable
+                    dep_col_str = ("CASE WHEN " + dependent_variable +
+                                   " THEN 'True' ELSE 'False' END") if is_bool else dependent_variable
                     dep = ("(CASE " +
                            "\n               ".join([
                                 "WHEN ({dep_col})::text = $${c}$$ THEN {i}".format(
@@ -685,8 +687,7 @@ def forest_predict(schema_madlib, model, source, output, pred_type='response',
             "Random forest error: pred_type cannot be 'prob' for regression model.")
 
     # find which columns are of type boolean
-    boolean_cats = set([key for key, value in
-                        (get_cols_and_types(source)).iteritems()
+    boolean_cats = set([key for key, value in get_cols_and_types(source)
                         if value == 'boolean'])
 
     cat_features_str, con_features_str = get_feature_str(
@@ -976,7 +977,7 @@ def _calculate_oob_prediction(
                 NULL::float8[] AS con_index_distributions
             FROM {cat_features_info_table}
         """.format(**locals())
-        
+
     plpy.notice("sql_create_oob_var_dist_view : " + str(sql_create_oob_var_dist_view))
     plpy.execute(sql_create_oob_var_dist_view)
 

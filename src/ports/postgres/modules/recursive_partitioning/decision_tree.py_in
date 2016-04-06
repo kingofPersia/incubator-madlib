@@ -26,7 +26,7 @@ from utilities.validate_args import table_exists
 from utilities.validate_args import table_is_empty
 from utilities.validate_args import columns_exist_in_table
 from utilities.validate_args import is_var_valid
-from utilities.validate_args import _unquote_name
+from utilities.validate_args import unquote_ident
 from utilities.utilities import _assert
 from utilities.utilities import extract_keyvalue_params
 from utilities.utilities import unique_string
@@ -113,12 +113,12 @@ def _get_features_to_use(schema_madlib, training_table_name,
     #  list.
     if grouping_cols:
         group_set = set(split_quoted_delimited_str(grouping_cols))
-        group_set |= set(_unquote_name(i)
+        group_set |= set(unquote_ident(i)
                          for i in split_quoted_delimited_str(grouping_cols))
     else:
         group_set = set()
     other_col_set = set([id_col_name, weights, dependent_variable])
-    other_col_set |= set(_unquote_name(i)
+    other_col_set |= set(unquote_ident(i)
                          for i in [id_col_name, weights, dependent_variable])
 
     if list_of_features.strip() == '*':
@@ -139,7 +139,7 @@ def _get_features_to_use(schema_madlib, training_table_name,
 def _get_col_value(input_dict, col_name):
     """Return value from dict where key could be quoted or unquoted name"""
     return input_dict.get(
-        col_name, input_dict.get(_unquote_name(col_name)))
+        col_name, input_dict.get(unquote_ident(col_name)))
 # -------------------------------------------------------------------------
 
 
@@ -295,17 +295,17 @@ CREATE TABLE dummy_dt_con_src (
 );
 
 INSERT INTO dummy_dt_src VALUES
-(1, '{0}'::INTEGER[], ARRAY[0], 0.5),
-(2, '{0}'::INTEGER[], ARRAY[1], 0.5),
-(3, '{0}'::INTEGER[], ARRAY[4], 0.5),
-(4, '{0}'::INTEGER[], ARRAY[4], 0.5),
-(5, '{0}'::INTEGER[], ARRAY[4], 0.5),
-(6, '{0}'::INTEGER[], ARRAY[5], 0.1),
-(7, '{0}'::INTEGER[], ARRAY[6], 0.1),
-(8, '{1}'::INTEGER[], ARRAY[9], 0.1);
-(9, '{1}'::INTEGER[], ARRAY[9], 0.1);
-(10, '{1}'::INTEGER[], ARRAY[9], 0.1);
-(11, '{1}'::INTEGER[], ARRAY[9], 0.1);
+(1, '{{0}}'::INTEGER[], ARRAY[0], 0.5),
+(2, '{{0}}'::INTEGER[], ARRAY[1], 0.5),
+(3, '{{0}}'::INTEGER[], ARRAY[4], 0.5),
+(4, '{{0}}'::INTEGER[], ARRAY[4], 0.5),
+(5, '{{0}}'::INTEGER[], ARRAY[4], 0.5),
+(6, '{{0}}'::INTEGER[], ARRAY[5], 0.1),
+(7, '{{0}}'::INTEGER[], ARRAY[6], 0.1),
+(8, '{{1}}'::INTEGER[], ARRAY[9], 0.1);
+(9, '{{1}}'::INTEGER[], ARRAY[9], 0.1);
+(10, '{{1}}'::INTEGER[], ARRAY[9], 0.1);
+(11, '{{1}}'::INTEGER[], ARRAY[9], 0.1);
 
 DROP TABLE IF EXISTS tree_out, tree_out_summary;
 SELECT madlib.tree_train(
@@ -471,7 +471,7 @@ def get_grouping_array_str(table_name, grouping_cols, qualifier=None):
     else:
         qualifier_str = ''
 
-    all_cols_types = get_cols_and_types(table_name)
+    all_cols_types = dict(get_cols_and_types(table_name))
     grouping_cols_list = [col.strip() for col in grouping_cols.split(',')]
     grouping_cols_and_types = [(col, _get_col_value(all_cols_types, col))
                                for col in grouping_cols_list]
@@ -508,7 +508,7 @@ def _build_tree(schema_madlib, is_classification, split_criterion,
     with MinWarning(msg_level):
         plpy.notice("Building tree for cross validation")
         tree_states, bins, dep_list, n_rows = _get_tree_states(**locals())
-        all_cols_types = get_cols_and_types(training_table_name)
+        all_cols_types = dict(get_cols_and_types(training_table_name))
         n_all_rows = plpy.execute("select count(*) from " + training_table_name
                                   )[0]['count']
         cp = grp_key_to_cp.values()[0]
@@ -589,7 +589,7 @@ def tree_train(schema_madlib, training_table_name, output_table_name,
                 "Decision tree error: No feature is selected for the model.")
 
         # 2)
-        all_cols_types = get_cols_and_types(training_table_name)
+        all_cols_types = dict(get_cols_and_types(training_table_name))
         cat_features, con_features, boolean_cats = _classify_features(
             all_cols_types, features)
         # get all rows
@@ -669,6 +669,7 @@ def _get_n_and_deplist(training_table_name, dependent_variable, filter_null):
                    source=training_table_name,
                    filter_null=filter_null)
     r = plpy.execute(sql)[0]
+    r['n_rows'] = 0 if r['n_rows'] is None else r['n_rows']
     return long(r['n_rows']), r['dep']
 # ------------------------------------------------------------
 
@@ -1668,8 +1669,7 @@ def tree_predict(schema_madlib, model, source, output, pred_type='response',
     dep_type = summary_elements['dependent_var_type']
 
     # find which columns are of type boolean
-    boolean_cats = set([key for key, value in
-                        (get_cols_and_types(source)).iteritems()
+    boolean_cats = set([key for key, value in get_cols_and_types(source)
                         if value == 'boolean'])
 
     cat_features_str, con_features_str = get_feature_str(

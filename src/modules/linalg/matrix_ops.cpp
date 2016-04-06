@@ -1,5 +1,4 @@
 /* ----------------------------------------------------------------------- *//**
- *
  * @file matrix_ops.cpp
  *
  * @date May 8, 2013
@@ -13,6 +12,12 @@
 #include <algorithm>
 #include <functional>
 #include <numeric>
+#include <boost/random/uniform_real.hpp>
+#include <boost/random/normal_distribution.hpp>
+#include <boost/random/bernoulli_distribution.hpp>
+#include <boost/random/variate_generator.hpp>
+#include <boost/generator_iterator.hpp>
+#include <boost/random/linear_congruential.hpp>
 #include "matrix_ops.hpp"
 
 namespace madlib {
@@ -25,7 +30,6 @@ using madlib::dbconnector::postgres::madlib_construct_md_array;
 
 // Use Eigen
 using namespace dbal::eigen_integration;
-
 
 typedef struct __type_info{
     Oid oid;
@@ -222,6 +226,124 @@ AnyType rand_vector::run(AnyType & args)
     for (int i = 0; i < dim; i++){
         *(r.ptr() + i) = (int)(drand48() * 1000);
     }
+    return r;
+}
+
+AnyType normal_vector::run(AnyType & args)
+{
+    int dim = args[0].getAs<int>();
+    double mu = args[1].getAs<double>();
+    double sigma = args[2].getAs<double>();
+    int seed = args[3].getAs<int>();
+
+    if (dim < 1) {
+        throw std::invalid_argument("invalid argument - dim should be positive");
+    }
+    ColumnVector res(dim);
+    boost::minstd_rand generator(seed);
+    boost::normal_distribution<> nd_dist(mu, sigma);
+    boost::variate_generator<boost::minstd_rand&, boost::normal_distribution<> > nd(generator, nd_dist);
+
+    for (int i = 0; i < dim; i++){
+        res(i) = (double)nd();
+    }
+    return res;
+}
+
+AnyType bernoulli_vector::run(AnyType & args)
+{
+    int dim = args[0].getAs<int>();
+    double upper_val = args[1].getAs<double>();
+    double lower_val = args[2].getAs<double>();
+    double prob = args[3].getAs<double>();
+    int seed = args[4].getAs<int>();
+
+    if (dim < 1) {
+        throw std::invalid_argument("invalid argument - dim should be positive");
+    }
+    if (prob > 1 || prob < 0) {
+        throw std::invalid_argument("invalid argument - probability should be in [0,1]");
+    }
+
+    ColumnVector res(dim);
+    boost::minstd_rand generator(seed);
+    boost::bernoulli_distribution<> bn_dist(prob);
+    boost::variate_generator<boost::minstd_rand&, boost::bernoulli_distribution<> > bn(generator, bn_dist);
+
+    for (int i = 0; i < dim; i++) {
+        res(i) = bn() ? upper_val : lower_val;
+    }
+    return res;
+}
+
+AnyType uniform_vector::run(AnyType & args)
+{
+    int dim = args[0].getAs<int>();
+    double min_ = args[1].getAs<double>();
+    double max_ = args[2].getAs<double>();
+    int seed = args[3].getAs<int>();
+
+    if (dim < 1) {
+        throw std::invalid_argument("invalid argument - dim should be positive");
+    }
+    ColumnVector res(dim);
+    boost::minstd_rand generator(seed);
+    boost::uniform_real<> uni_dist(min_, max_);
+    boost::variate_generator<boost::minstd_rand&, boost::uniform_real<> > uni(generator, uni_dist);
+    for (int i = 0; i < dim; i++){
+        res(i) = (double)uni();
+    }
+    return res;
+}
+
+AnyType matrix_vec_mult_in_mem_2d::run(AnyType & args){
+    MappedColumnVector vec = args[0].getAs<MappedColumnVector>();
+    MappedMatrix mat = args[1].getAs<MappedMatrix>();
+
+    // Note mat is constructed in the column-first order
+    // which means that mat is actually transposed
+    if(vec.size() != mat.cols()){
+        throw std::invalid_argument(
+            "dimensions mismatch: vec.size() != matrix.rows()");
+    };
+
+    // trans(vec) * trans(mat) = mat * vec
+    Matrix r = mat * vec;
+    ColumnVector v = r.col(0);
+    return v;
+}
+
+AnyType matrix_vec_mult_in_mem_1d::run(AnyType & args){
+    MappedColumnVector vec1 = args[0].getAs<MappedColumnVector>();
+    // matrix stored as a 1-d array
+    MappedColumnVector vec2 = args[1].getAs<MappedColumnVector>();
+
+    if(vec2.size() % vec1.size() != 0){
+        throw std::invalid_argument(
+            "dimensions mismatch: matrix.size() is not multiples of vec.size()");
+    };
+
+    MappedMatrix mat;
+    // the rebinding happens in column-major
+    mat.rebind(vec2.memoryHandle(), vec1.size(), vec2.size()/vec1.size());
+    Matrix r = trans(mat) * vec1;
+    ColumnVector v = r.col(0);
+    return v;
+}
+
+AnyType row_fold::run(AnyType & args){
+    MappedColumnVector vec = args[0].getAs<MappedColumnVector>();
+    MappedIntegerVector pat = args[1].getAs<MappedIntegerVector>();
+
+    if (vec.size() != pat.sum()) {
+        throw std::invalid_argument(
+            "dimensions mismatch: row_in.size() != pattern.sum()");
+    }
+
+    ColumnVector r(pat.size());
+    for (int i = 0, j = 0; i < pat.size(); j += pat[i++])
+        r[i] = vec.segment(j, pat[i]).prod();
+
     return r;
 }
 

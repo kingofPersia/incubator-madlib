@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 /* ----------------------------------------------------------------------- *//**
  *
  * @file avg_var.cpp
@@ -18,10 +36,10 @@ namespace hello_world {
 
 template <class Handle>
 class AvgVarTransitionState {
-	template <class OtherHandle>
+    template <class OtherHandle>
     friend class AvgVarTransitionState;
 
-  public:
+public:
     AvgVarTransitionState(const AnyType &inArray)
         : mStorage(inArray.getAs<Handle>()) {
 
@@ -41,17 +59,17 @@ class AvgVarTransitionState {
     /**
      * @brief Update state with a new data point
      */
-    template <class OtherHandle>
-    AvgVarTransitionState &operator+=(const double x){
+    AvgVarTransitionState & operator+=(const double x){
         double diff = (x - avg);
         double normalizer = static_cast<double>(numRows + 1);
         // online update mean
-        this.avg += diff / normalizer;
+        this->avg += diff / normalizer;
 
         // online update variance
         double new_diff = (x - avg);
-        double a = static_cast<double>(state.numRows) / normalizer;
-        this.var = (var * a) + (diff * new_diff) / normalizer;
+        double a = static_cast<double>(this->numRows) / normalizer;
+        this->var = (var * a) + (diff * new_diff) / normalizer;
+    return *this;
     }
 
     /**
@@ -80,8 +98,8 @@ class AvgVarTransitionState {
         double a_ = avg_ - totalAvg;
 
         numRows += numRows_;
-        this.var = (w * var) + (w_ * var_) + (w * a * a) + (w_ * a_ * a_);
-        this.avg = totalAvg;
+        this->var = (w * var) + (w_ * var_) + (w * a * a) + (w_ * a_ * a_);
+        this->avg = totalAvg;
         return *this;
     }
 

@@ -47,6 +47,8 @@ static ArrayType *General_2Array_to_Array(ArrayType *v1, ArrayType *v2,
         Datum(*element_function)(Datum,Oid,Datum,Oid,Datum,Oid));
 static ArrayType *General_Array_to_Array(ArrayType *v1, Datum value,
         Datum(*element_function)(Datum,Oid,Datum,Oid,Datum,Oid));
+static ArrayType *General_Array_to_Cumulative_Array(ArrayType *v1, Datum value,
+        Datum(*element_function)(Datum,Oid,Datum,Oid,Datum,Oid));
 static Datum General_2Array_to_Element(ArrayType *v1, ArrayType *v2,
         Datum(*element_function)(Datum,Oid,Datum,Oid,Datum,Oid),
         Datum(*finalize_function)(Datum,int,Oid));
@@ -62,6 +64,8 @@ static inline Datum average_finalize(Datum elt,int size,Oid element_type);
 static inline Datum average_root_finalize(Datum elt,int size,Oid element_type);
 static inline Datum value_index_finalize(void *mid_result,int size,Oid element_type);
 
+static inline Datum element_cos(Datum element, Oid elt_type, Datum result,
+        Oid result_type, Datum opt_elt, Oid opt_type);
 static inline Datum element_add(Datum element, Oid elt_type, Datum result,
         Oid result_type, Datum opt_elt, Oid opt_type);
 static inline Datum element_sub(Datum element, Oid elt_type, Datum result,
@@ -110,6 +114,7 @@ static inline Datum element_op(Datum element, Oid elt_type, Datum result,
         Oid result_type, Datum opt_elt, Oid opt_type,
         float8 (*op)(float8, float8, float8));
 
+static inline float8 float8_cos(float8 op1, float8 op2, float8 opt_op);
 static inline float8 float8_add(float8 op1, float8 op2, float8 opt_op);
 static inline float8 float8_sub(float8 op1, float8 op2, float8 opt_op);
 static inline float8 float8_mult(float8 op1, float8 op2, float8 opt_op);
@@ -131,6 +136,15 @@ static inline float8 float8_sum_sqr(float8 op1, float8 op2, float8 opt_op);
 /*
  * Implementation of operations on float8 type
  */
+static
+inline
+float8
+float8_cos(float8 op1, float8 op2, float8 opt_op){
+    (void) op2;
+    (void) opt_op;
+    return cos(op1);
+}
+
 static
 inline
 float8
@@ -479,6 +493,7 @@ array_sum(PG_FUNCTION_ARGS){
     return float8_datum_cast(DatumGetFloat8(res), element_type);
 }
 
+
 /*
  * This function returns sum of the array elements' absolute value.
  */
@@ -824,6 +839,25 @@ array_fill(PG_FUNCTION_ARGS){
 }
 
 /*
+ * This function apply cos function to each element.
+ */
+PG_FUNCTION_INFO_V1(array_cos);
+Datum
+array_cos(PG_FUNCTION_ARGS){
+    if (PG_ARGISNULL(0)) { PG_RETURN_NULL(); }
+
+    ArrayType *v1 = PG_GETARG_ARRAYTYPE_P(0);
+    Oid element_type = ARR_ELEMTYPE(v1);
+    Datum v2 = float8_datum_cast(0, element_type);
+
+    ArrayType *res = General_Array_to_Array(v1, v2, element_cos);
+
+    PG_FREE_IF_COPY(v1, 0);
+
+    PG_RETURN_ARRAYTYPE_P(res);
+}
+
+/*
  * This function multiplies the specified value to each element.
  */
 PG_FUNCTION_INFO_V1(array_scalar_mult);
@@ -858,6 +892,36 @@ array_scalar_add(PG_FUNCTION_ARGS){
 
     PG_FREE_IF_COPY(v1, 0);
 
+    PG_RETURN_ARRAYTYPE_P(res);
+}
+
+/*
+ * This function returns the cumulative sum of the array elements.
+ */
+PG_FUNCTION_INFO_V1(array_cum_sum);
+Datum
+array_cum_sum(PG_FUNCTION_ARGS){
+    if (PG_ARGISNULL(0)) { PG_RETURN_NULL(); }
+
+    ArrayType *v = PG_GETARG_ARRAYTYPE_P(0);
+    ArrayType *res = General_Array_to_Cumulative_Array(v, Float8GetDatum(0.0), element_add);
+
+    PG_FREE_IF_COPY(v, 0);
+    PG_RETURN_ARRAYTYPE_P(res);
+}
+
+/*
+ * This function returns the cumulative product of the array elements.
+ */
+PG_FUNCTION_INFO_V1(array_cum_prod);
+Datum
+array_cum_prod(PG_FUNCTION_ARGS){
+    if (PG_ARGISNULL(0)) { PG_RETURN_NULL(); }
+
+    ArrayType *v = PG_GETARG_ARRAYTYPE_P(0);
+    ArrayType *res = General_Array_to_Cumulative_Array(v, Float8GetDatum(1.0), element_mult);
+
+    PG_FREE_IF_COPY(v, 0);
     PG_RETURN_ARRAYTYPE_P(res);
 }
 
@@ -1336,6 +1400,17 @@ Datum
 element_set(Datum element, Oid elt_type, Datum result,
         Oid result_type, Datum opt_elt, Oid opt_type){
     return element_op(element, elt_type, result, result_type, opt_elt, opt_type, float8_set);
+}
+
+/*
+ * Assign result to be cos(elt1).
+ */
+static
+inline
+Datum
+element_cos(Datum element, Oid elt_type, Datum result,
+            Oid result_type, Datum opt_elt, Oid opt_type){
+    return element_op(element, elt_type, result, result_type, opt_elt, opt_type, float8_cos);
 }
 
 /*
@@ -1929,3 +2004,105 @@ General_Array_to_Array(
     return pgarray;
 }
 
+
+/*
+ * @brief Transforms an array to another array using cumulative operations.
+ *
+ * @param v1 Array.
+ * @param initial Parameter.
+ * @param element_function Map function.
+ * @returns Transformed array.
+ */
+ArrayType*
+General_Array_to_Cumulative_Array(
+        ArrayType *v1,
+        Datum initial,
+        Datum(*element_function)(Datum,Oid,Datum,Oid,Datum,Oid)) {
+
+    // dimensions
+    int ndims1 = ARR_NDIM(v1);
+    if (ndims1 == 0) {
+        elog(WARNING, "input are empty arrays.");
+        return v1;
+    }
+    int ndims = ndims1;
+    int *lbs1 = ARR_LBOUND(v1);
+    int *dims1 = ARR_DIMS(v1);
+    int *dims = (int *) palloc(ndims * sizeof(int));
+    int *lbs = (int *) palloc(ndims * sizeof(int));
+    int i = 0;
+    for (i = 0; i < ndims; i ++) {
+        dims[i] = dims1[i];
+        lbs[i] = lbs1[i];
+    }
+    int nitems = ArrayGetNItems(ndims, dims);
+
+    // nulls
+    if (ARR_HASNULL(v1)) {
+        ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+                        errmsg("arrays cannot contain nulls"),
+                        errdetail("Arrays with element value NULL are not allowed.")));
+    }
+
+    // type
+    Oid element_type = ARR_ELEMTYPE(v1);
+    TypeCacheEntry *typentry = lookup_type_cache(element_type,TYPECACHE_CMP_PROC_FINFO);
+    int type_size = typentry->typlen;
+    bool typbyval = typentry->typbyval;
+    char typalign = typentry->typalign;
+
+    // allocate
+    Datum *result = NULL;
+    switch (element_type) {
+        case INT2OID:
+        case INT4OID:
+        case INT8OID:
+        case FLOAT4OID:
+        case FLOAT8OID:
+        case NUMERICOID:
+            result = (Datum *)palloc(nitems * sizeof(Datum));break;
+        default:
+            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                            errmsg("type is not supported"),
+                            errdetail("Arrays with element type %s are not supported.",
+                                      format_type_be(element_type))));
+            break;
+    }
+
+    // iterate
+    Datum *resultp = result;
+    char *dat1 = ARR_DATA_PTR(v1);
+    float prev_dat = DatumGetFloat8(initial);
+    for (i = 0; i < nitems; i ++) {
+        // iterate elt1
+        Datum elt1 = fetch_att(dat1, typbyval, type_size);
+        dat1 = att_addlength_pointer(dat1, type_size, dat1);
+        dat1 = (char *) att_align_nominal(dat1, typalign);
+
+        *resultp = element_function(elt1,
+                                    element_type,
+                                    elt1,         /* placeholder */
+                                    element_type, /* placeholder */
+                                    prev_dat,
+                                    element_type);
+        prev_dat = *resultp;
+        resultp++;
+    }
+
+    // construct return result
+    ArrayType *pgarray = construct_md_array(result,
+                                            NULL,
+                                            ndims,
+                                            dims,
+                                            lbs,
+                                            element_type,
+                                            type_size,
+                                            typbyval,
+                                            typalign);
+
+    pfree(result);
+    pfree(dims);
+    pfree(lbs);
+
+    return pgarray;
+}
